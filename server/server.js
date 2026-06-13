@@ -26,19 +26,37 @@ const httpServer = createServer(app);
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
-  process.env.SERVER_URL || 'https://your-app-name.onrender.com'
-];
+  'http://127.0.0.1:3000',
+  process.env.SERVER_URL
+].filter(Boolean);
+
+console.log('🔗 허용된 CORS Origin:', allowedOrigins);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn('⚠️ CORS 거부됨:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
-    methods: ['GET', 'POST']
+    methods: ['GET', 'POST'],
+    credentials: true
   },
-  maxHttpBufferSize: 1e6
+  maxHttpBufferSize: 1e6,
+  transports: ['websocket', 'polling']
 });
 
 // Middleware
-app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
@@ -53,6 +71,11 @@ const blockedWords = new Set(['욕설', '차단단어']);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', verifyToken, userRoutes);
 app.use('/api/message', verifyToken, messageRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Socket.IO Event Handlers
 io.on('connection', (socket) => {
@@ -214,7 +237,7 @@ io.on('connection', (socket) => {
         userId: user.userId,
         userName: user.userName,
         timestamp: new Date().toISOString(),
-        userCount: roomUsers_.length
+        userCount: roomUsers_?.length || 0
       });
       
       userSockets.delete(socket.id);
@@ -229,10 +252,11 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다.`);
-  console.log(`📡 환경: ${process.env.NODE_ENV}`);
+  console.log(`📡 환경: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 서버 URL: ${process.env.SERVER_URL || 'http://localhost:3000'}`);
+  console.log(`✅ CORS 활성화됨`);
 });
 
 export { io, userSockets, roomUsers, bannedUsers, blockedWords };

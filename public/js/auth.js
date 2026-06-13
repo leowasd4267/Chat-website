@@ -1,4 +1,5 @@
-const API_URL = 'http://localhost:3000/api';
+// public/js/auth.js
+const API_URL = typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:3000/api';
 
 export function initAuth() {
   const app = document.getElementById('app');
@@ -29,6 +30,7 @@ function renderLoginForm() {
         <input type="password" id="password" required>
       </div>
       <button type="submit" class="btn">로그인</button>
+      <div class="error-message" id="loginError" style="display: none; color: red; margin-top: 10px;"></div>
     </form>
     <div class="link">
       <a href="#" onclick="window.switchToRegister(event)">회원가입</a>
@@ -62,6 +64,7 @@ function renderRegisterForm() {
         <input type="password" id="confirmPassword" required>
       </div>
       <button type="submit" class="btn">회원가입</button>
+      <div class="error-message" id="registerError" style="display: none; color: red; margin-top: 10px;"></div>
     </form>
     <div class="link">
       <a href="#" onclick="window.switchToLogin(event)">로그인</a>
@@ -86,8 +89,11 @@ async function handleLogin(e) {
   
   const username = document.getElementById('username').value;
   const password = document.getElementById('password').value;
+  const loginError = document.getElementById('loginError');
 
   try {
+    console.log('🔐 로그인 시도:', { username });
+    
     const response = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -95,17 +101,22 @@ async function handleLogin(e) {
     });
 
     const data = await response.json();
+    console.log('📡 로그인 응답:', { status: response.status, data });
 
     if (response.ok) {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      loginError.style.display = 'none';
       window.dispatchEvent(new Event('auth-success'));
     } else {
-      alert(data.message || '로그인 실패');
+      loginError.textContent = data.message || '로그인 실패';
+      loginError.style.display = 'block';
+      console.error('❌ 로그인 오류:', data);
     }
   } catch (error) {
-    console.error('Login error:', error);
-    alert('로그인 중 오류가 발생했습니다.');
+    console.error('❌ Login error:', error);
+    loginError.textContent = '로그인 중 오류가 발생했습니다: ' + error.message;
+    loginError.style.display = 'block';
   }
 }
 
@@ -116,13 +127,17 @@ async function handleRegister(e) {
   const username = document.getElementById('regUsername').value;
   const password = document.getElementById('regPassword').value;
   const confirmPassword = document.getElementById('confirmPassword').value;
+  const registerError = document.getElementById('registerError');
 
   if (password !== confirmPassword) {
-    alert('비밀번호가 일치하지 않습니다.');
+    registerError.textContent = '비밀번호가 일치하지 않습니다.';
+    registerError.style.display = 'block';
     return;
   }
 
   try {
+    console.log('📝 회원가입 시도:', { email, username });
+    
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -130,16 +145,21 @@ async function handleRegister(e) {
     });
 
     const data = await response.json();
+    console.log('📡 회원가입 응답:', { status: response.status, data });
 
     if (response.ok) {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      registerError.style.display = 'none';
       window.dispatchEvent(new Event('auth-success'));
     } else {
-      alert(data.message || '회원가입 실패');
+      registerError.textContent = data.message || data.errors?.[0]?.msg || '회원가입 실패';
+      registerError.style.display = 'block';
+      console.error('❌ 회원가입 오류:', data);
     }
   } catch (error) {
-    console.error('Register error:', error);
-    alert('회원가입 중 오류가 발생했습니다.');
+    console.error('❌ Register error:', error);
+    registerError.textContent = '회원가입 중 오류가 발생했습니다: ' + error.message;
+    registerError.style.display = 'block';
   }
 }
