@@ -6,10 +6,34 @@
   <title>학급 채팅</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/dark-mode.css">
+  <style>
+    #app {
+      min-height: 100vh;
+      background: #f5f5f5;
+    }
+  </style>
 </head>
 <body>
   <div id="app"></div>
+  
+  <!-- Socket.IO 라이브러리 -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  
+  <!-- 메인 앱 스크립트 -->
   <script type="module" src="/js/main.js"></script>
+  
+  <script>
+    // 전역 에러 핸들러
+    window.addEventListener('error', function(event) {
+      console.error('🔴 전역 에러:', event.error);
+    });
+
+    // Promise 거부 에러 핸들러
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('🔴 처리되지 않은 Promise 거부:', event.reason);
+    });
+
+    console.log('🎯 페이지 로드 시작');
+  </script>
 </body>
 </html>
