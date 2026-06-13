@@ -12,6 +12,7 @@ import { verifyToken } from './middleware/auth.js';
 import messageHandler from './handlers/messageHandler.js';
 import userHandler from './handlers/userHandler.js';
 import adminHandler from './handlers/adminHandler.js';
+import { db } from './firebase-config.js';
 
 dotenv.config();
 
@@ -20,9 +21,17 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS 설정 (Render 배포용)
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.SERVER_URL || 'https://your-app-name.onrender.com'
+];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST']
   },
   maxHttpBufferSize: 1e6
@@ -47,9 +56,9 @@ app.use('/api/message', verifyToken, messageRoutes);
 
 // Socket.IO Event Handlers
 io.on('connection', (socket) => {
-  console.log('사용자 연결:', socket.id);
+  console.log('✅ 사용자 연결:', socket.id);
 
-  socket.on('join-room', (data) => {
+  socket.on('join-room', async (data) => {
     const { userId, roomId, userName, profileImage } = data;
     
     if (bannedUsers.has(userId)) {
@@ -65,6 +74,19 @@ io.on('connection', (socket) => {
     }
     roomUsers.get(roomId).push({ socketId: socket.id, userId, userName, profileImage });
 
+    // Firebase에 사용자 정보 저장
+    try {
+      await db.collection('rooms').doc(roomId).collection('users').doc(userId).set({
+        userId,
+        userName,
+        profileImage,
+        joinedAt: new Date(),
+        status: 'online'
+      }, { merge: true });
+    } catch (error) {
+      console.error('Firebase 사용자 저장 실패:', error);
+    }
+
     io.to(roomId).emit('user-joined', {
       userId,
       userName,
@@ -74,7 +96,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('send-message', (data) => {
+  socket.on('send-message', async (data) => {
     const user = userSockets.get(socket.id);
     if (!user) return;
 
@@ -87,14 +109,31 @@ io.on('connection', (socket) => {
       filteredMessage = filteredMessage.replace(regex, '*'.repeat(word.length));
     });
 
-    io.to(roomId).emit('new-message', {
+    const messageData = {
       userId: user.userId,
       userName: user.userName,
       profileImage: user.profileImage,
       message: filteredMessage,
       timestamp: new Date().toISOString(),
       messageId: `${Date.now()}_${Math.random()}`
-    });
+    };
+
+    // Firebase에 메시지 저장
+    try {
+      await db.collection('messages').add({
+        roomId,
+        userId: user.userId,
+        userName: user.userName,
+        profileImage: user.profileImage,
+        content: filteredMessage,
+        timestamp: new Date(),
+        messageId: messageData.messageId
+      });
+    } catch (error) {
+      console.error('Firebase 메시지 저장 실패:', error);
+    }
+
+    io.to(roomId).emit('new-message', messageData);
   });
 
   socket.on('user-typing', (data) => {
@@ -107,9 +146,19 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('user-status', (data) => {
+  socket.on('user-status', async (data) => {
     const user = userSockets.get(socket.id);
     if (!user) return;
+
+    // Firebase에 상태 저장
+    try {
+      await db.collection('rooms').doc(user.roomId).collection('users').doc(user.userId).update({
+        status: data.status,
+        updatedAt: new Date()
+      });
+    } catch (error) {
+      console.error('Firebase 상태 업데이트 실패:', error);
+    }
 
     io.to(user.roomId).emit('user-status-changed', {
       userId: user.userId,
@@ -117,16 +166,30 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('delete-message', (data) => {
+  socket.on('delete-message', async (data) => {
     const user = userSockets.get(socket.id);
     if (!user) return;
+
+    // Firebase에서 메시지 삭제
+    try {
+      const snapshot = await db.collection('messages')
+        .where('messageId', '==', data.messageId)
+        .where('userId', '==', user.userId)
+        .get();
+
+      snapshot.forEach(doc => {
+        doc.ref.delete();
+      });
+    } catch (error) {
+      console.error('Firebase 메시지 삭제 실패:', error);
+    }
 
     io.to(user.roomId).emit('message-deleted', {
       messageId: data.messageId
     });
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     const user = userSockets.get(socket.id);
     if (user) {
       const roomUsers_ = roomUsers.get(user.roomId);
@@ -135,6 +198,16 @@ io.on('connection', (socket) => {
         if (index !== -1) {
           roomUsers_.splice(index, 1);
         }
+      }
+
+      // Firebase에서 사용자 상태 업데이트
+      try {
+        await db.collection('rooms').doc(user.roomId).collection('users').doc(user.userId).update({
+          status: 'offline',
+          disconnectedAt: new Date()
+        });
+      } catch (error) {
+        console.error('Firebase 사용자 상태 업데이트 실패:', error);
       }
 
       io.to(user.roomId).emit('user-left', {
@@ -146,7 +219,7 @@ io.on('connection', (socket) => {
       
       userSockets.delete(socket.id);
     }
-    console.log('사용자 연결 해제:', socket.id);
+    console.log('❌ 사용자 연결 해제:', socket.id);
   });
 });
 
@@ -158,6 +231,8 @@ app.get('*', (req, res) => {
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다.`);
+  console.log(`📡 환경: ${process.env.NODE_ENV}`);
+  console.log(`🔗 서버 URL: ${process.env.SERVER_URL || 'http://localhost:3000'}`);
 });
 
 export { io, userSockets, roomUsers, bannedUsers, blockedWords };
