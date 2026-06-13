@@ -1,10 +1,9 @@
-node_modules/
+node_modules
+package-lock.json
 .env
 .env.local
+.env.*.local
+dist
+build
 .DS_Store
 *.log
-dist/
-build/
-.firebase/
-.firebaserc
-upload/
